@@ -20,10 +20,11 @@ type env = Data.t Trie.t
 (** [remap pattern env] uses the [pattern] to massage
     the environment [env]. *)
 let remap pattern env =
+  let pp_path = function [] -&gt; &quot;(root)&quot; | path -&gt; String.concat &quot;.&quot; path in
   match Action.run Data.merge pattern env with
   | Ok env -&gt; env
   | Error (Action.BindingNotFound path) -&gt;
-    failwith (&quot;Expected item not found within the subtree rooted at #root.&quot; ^ String.concat &quot;.&quot; path ^ &quot;.&quot;)
+    failwith (&quot;Expected binding(s) not found within the subtree rooted at &quot; ^ pp_path path ^ &quot;.&quot;)
 
 (** [import env pattern imported] imports the environment
     [imported] massaged by [pattern] into [env]. *)
