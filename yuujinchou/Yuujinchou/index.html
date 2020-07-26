@@ -23,7 +23,7 @@ let remap pattern env =
   let pp_path = function [] -&gt; &quot;(root)&quot; | path -&gt; String.concat &quot;.&quot; path in
   match Action.run Data.merge pattern env with
   | Ok env -&gt; env
-  | Error (Action.BindingNotFound path) -&gt;
+  | Error (Action.Binding_not_found path) -&gt;
     failwith (&quot;Expected binding(s) not found within the subtree at &quot; ^ pp_path path ^ &quot;.&quot;)
 
 (** [import env pattern imported] imports the environment
