@@ -3,7 +3,7 @@ open Yuujinchou
 let trie (type a) (elem : a Alcotest.testable) : a Trie.t Alcotest.testable =
   let module M = struct
     type t = a Trie.t
-    let pp = Trie.dump (Alcotest.pp elem)
+    let pp fmt t = Alcotest.(pp @@ list @@ pair (list string) elem) fmt (List.of_seq @@ Trie.to_seq t)
     let equal = Trie.equal (Alcotest.equal elem)
   end in
   (module M)
@@ -25,11 +25,11 @@ let test_is_empty_empty () =
 let test_is_empty_root () =
   Alcotest.(check bool) "not empty" false (Trie.is_empty @@ of_list [[], [1]])
 
-let test_mk_root_none () =
-  Alcotest.(check @@ trie int) "same trie" Trie.empty (Trie.mk_root None)
+let test_root_opt_none () =
+  Alcotest.(check @@ trie int) "same trie" Trie.empty (Trie.root_opt None)
 
-let test_mk_root_some () =
-  Alcotest.(check @@ trie int) "same trie" (of_list [[], 10]) (Trie.mk_root (Some 10))
+let test_root_opt_some () =
+  Alcotest.(check @@ trie int) "same trie" (of_list [[], 10]) (Trie.root_opt (Some 10))
 
 let test_prefix_1 () =
   Alcotest.(check @@ trie int) "same trie"
@@ -372,9 +372,9 @@ let () =
       test_case "is_empty" `Quick test_is_empty_empty;
       test_case "is_empty" `Quick test_is_empty_root;
     ];
-    "mk_root", [
-      test_case "mk_root" `Quick test_mk_root_none;
-      test_case "mk_root" `Quick test_mk_root_some;
+    "root_opt", [
+      test_case "root_opt" `Quick test_root_opt_none;
+      test_case "root_opt" `Quick test_root_opt_some;
     ];
     "prefix", [
       test_case "prefix" `Quick test_prefix_1;

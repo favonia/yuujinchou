@@ -3,6 +3,9 @@ open Pattern
 open ResultMonad.Syntax
 
 type path = Pattern.path
+let pp_path = Pattern.pp_path
+
+type nonrec ('a, 'error) result = ('a Trie.t, [> `BindingNotFound of path] as 'error) result
 
 let run_act ~hooks ~rev_prefix act t =
   match act with
@@ -12,7 +15,7 @@ let run_act ~hooks ~rev_prefix act t =
       error @@ `BindingNotFound (List.rev rev_prefix)
     else
       match switch with
-      | `Keep -> ret t
+      | `Use -> ret t
       | `Hide -> ret Trie.empty
 
 let rec run_ ~union ~hooks ~rev_prefix pat t =
@@ -25,7 +28,7 @@ let rec run_ ~union ~hooks ~rev_prefix pat t =
       | `Subtree -> Trie.detach_subtree prefix t
       | `Node ->
         let singleton, others = Trie.detach_singleton prefix t in
-        Trie.mk_root singleton, others
+        Trie.root_opt singleton, others
     in
     let+ target' = run_ ~union ~hooks ~rev_prefix:List.(rev_append prefix rev_prefix) on_target target
     and+ others' = run_ ~union ~hooks ~rev_prefix on_others others in
@@ -42,5 +45,3 @@ let rec run_ ~union ~hooks ~rev_prefix pat t =
 let run_with_hooks ?(rev_prefix=[]) ~union ~hooks = run_ ~union ~hooks ~rev_prefix
 
 let run ?rev_prefix ~union = run_with_hooks ?rev_prefix ~union ~hooks:(fun () ~rev_prefix:_ t -> ret t)
-
-let pp_path fmt path = Format.pp_print_string fmt @@ String.concat ~sep:"." path

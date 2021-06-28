@@ -14,31 +14,34 @@ val empty : 'a t
 (** Check whether the trie is empty. *)
 val is_empty : 'a t -> bool
 
-(** Make a trie with only one binding: the root associated with the provided value. [mk_root None] will make an empty trie and [mk_root (Some v)] will make a trie with the value [v]. If thi input is always [Some v], use {!val:root}. *)
-val mk_root : 'a option -> 'a t
+(** [root d] makes a trie with the only binding: the root and its associated value [d]. It is equivalent to {!val:root_opt}[(Some d)]. *)
+val root : 'a -> 'a t
+
+(** [root_opt d] is equivalent to [match d with None ->]{!val:empty}[| Some d ->]{!val:root}[d]. In other words, [root_opt None] will make an empty trie and [root_opt (Some v)] will make a trie with only one binding: the root associated with the value [v]. If the input is always [Some v], use {!val:root}. *)
+val root_opt : 'a option -> 'a t
 
 (** [prefix p t] makes a minimum trie with [t] rooted at [p]. *)
 val prefix : path -> 'a t -> 'a t
 
-(** [strington (p, d)] makes a trie with the only binding: [p] and its associated value [d]. *)
+(** [singleton (p, d)] makes a trie with the only binding: [p] and its associated value [d]. It is equivalent to {!val:prefix}[p @@]{!val:root}[d] *)
 val singleton : path * 'a -> 'a t
 
-(** [root d] makes a trie with the only binding: the root and its associated value [d]. It is equivalent to [singleton [] d]. *)
-val root : 'a -> 'a t
-
-(** [equal eq t1 t2] checks whether two tries are equal. It the internal representations of tries are physically equal, [equal eq t1 t2] will return [true] without calling [eq]. *)
+(** [equal eq t1 t2] checks whether two tries are equal. If the internal representations of tries are physically equal, [equal eq t1 t2] will immediately return [true] without calling [eq]. *)
 val equal : ('a -> 'a -> bool) -> 'a t -> 'a t -> bool
 (* val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int *)
 
 (** {1 Finding Values} *)
 
-(** [find_subtree p t] returns the subtree rooted at [p]. *)
+(** [find_subtree p t] returns the subtree rooted at [p].
+
+    @return The subtrie with all the bindings under [p], including the binding at [p] itself (which will be the root). If there are no such bindings with the prefix [p], an empty trie is returned.
+*)
 val find_subtree : path -> 'a t -> 'a t
 
 (** [find_singleton p t] returns the value at [p]. *)
 val find_singleton : path -> 'a t -> 'a option
 
-(** [find_root t] returns the value at the root. This is equivalent to [find_singleton [] t]. *)
+(** [find_root t] returns the value at the root. This is equivalent to {!val:find_singleton}[[] t]. *)
 val find_root : 'a t -> 'a option
 
 (** {1 Mapping and Filtering} *)
@@ -55,7 +58,7 @@ val iteri : ?rev_prefix:path -> (rev_path:path -> 'a -> unit) -> 'a t -> unit
 *)
 val mapi : ?rev_prefix:path -> (rev_path:path -> 'a -> 'b) -> 'a t -> 'b t
 
-(** [mapi_endo ~rev_prefix f t] is similar to [map f t] except that the domain and the codomain of the function must be the same and if [f v] returns [v] for every value [v] in [t], then [t] is returned unchanged. (That is, the new trie will be physically equal to the old one.) See {!val:filter_map_endo}.
+(** [mapi_endo ~rev_prefix f t] is similar to {!val:mapi}[f t] except that the domain and the codomain of the function must be the same. The additional benefit of [mapi_endo] over [mapi] is that, if [f v] returns [v] for every value [v] in [t], then [t] is returned unchanged. (That is, the new trie will be physically equal to the old one.) See {!val:filter_map_endo}.
 
     @param rev_prefix The prefix prepended to any path sent to [f], but in reverse. The default is the empty unit path ([[]]).
 *)
@@ -73,7 +76,7 @@ val filteri : ?rev_prefix:path -> (rev_path:path -> 'a -> bool) -> 'a t -> 'a t
 *)
 val filter_mapi : ?rev_prefix:path -> (rev_path:path -> 'a -> 'b option) -> 'a t -> 'b t
 
-(** [filter_mapi_endo ~rev_prefix f t] is similar to {!val:filter_map}[~rev_prefix f t] except that [f] must be of type [rev_path:path -> 'a -> 'a option]. Moreover, if [f ~rev_prefix:p v] returns [Some v] for every value [v] at [p] in [t], then [t] is returned unchanged. (That is, the new trie will be physically equal to the old one.) See {!val:map_endo}
+(** [filter_mapi_endo ~rev_prefix f t] is similar to {!val:filter_mapi}[~rev_prefix f t] except that [f] must be of type [rev_path:path -> 'a -> 'a option]; that is, its domain and codomain agree up to the [option] type. The additional benefit of [filter_mapi_endo] over [filter_mapi] is that if [f ~rev_prefix:p v] returns [Some v] for every value [v] at [p] in [t], then [t] is returned unchanged. (That is, the new trie will be physically equal to the old one.) See {!val:map_endo}
 
     @param rev_prefix The prefix prepended to any path sent to [f]. The default is the empty unit path ([[]]).
 *)
@@ -94,39 +97,52 @@ val update_root : ('a option -> 'a option) -> 'a t -> 'a t
 
 (** [union ~rev_prefix merger t1 t2] merges two tries [t1] and [t2]. If both tries have a binding at the same path [p], it will call [merger ~rev_path:p x y] to reconcile the values [x] from [t1] and [y] from [t2] that are both bound at the (reversed) path [rev_path]. The path [rev_path] is reversed for efficient traversal.
 
-    @param rev_prefix The prefix prepended to any path sent to [f]. The default is the empty unit path ([[]]).
+    @param rev_prefix The prefix prepended to any path sent to [merger]. The default is the empty unit path ([[]]).
 *)
 val union : ?rev_prefix:path -> (rev_path:path -> 'a -> 'a -> 'a) -> 'a t -> 'a t -> 'a t
 
-(** [union_subtree ~rev_prefix merger t1 (path, t2)] is equivalent to {!val:union}[~rev_prefix merger t1 (prefix path t2)], but potentially more efficient. *)
+(** [union_subtree ~rev_prefix merger t1 (path, t2)] is equivalent to {!val:union}[~rev_prefix merger t1 (prefix path t2)], but potentially more efficient.
+
+    @param rev_prefix The prefix prepended to any path sent to [merger]. The default is the empty unit path ([[]]).
+*)
 val union_subtree : ?rev_prefix:path -> (rev_path:path -> 'a -> 'a -> 'a) -> 'a t -> path * 'a t -> 'a t
 
-(** [union_singleton merger t binding] is equivalent to {!val:union}[merger t1 (singleton binding)], but potentially more efficient. *)
+(** [union_singleton merger t binding] is equivalent to {!val:union}[merger t1 (singleton binding)], but potentially more efficient.
+
+    @param rev_prefix The prefix prepended to any path sent to [merger]. The default is the empty unit path ([[]]).
+*)
 val union_singleton : ?rev_prefix:path -> (rev_path:path -> 'a -> 'a -> 'a) -> 'a t -> path * 'a -> 'a t
 
 (** {1 Separation} *)
 
-(** [detach p t] detaches the subtree at [p] from the main trie and returns both the subtree and the remaining trie. If [detach p t] returns [t1, t2], then [union_subtree m t2 (p, t1)] should be equivalent to [t]. *)
+(** [detach_subtree p t] detaches the subtree at [p] from the main trie and returns both the subtree and the remaining trie. If [detach p t] returns [t1, t2], then {!val:union_subtree}[m t2 (p, t1)] should be equivalent to [t]. *)
 val detach_subtree : path -> 'a t -> 'a t * 'a t
 
-(** [detach p t] detaches the binding at [p] from the main trie and returns both the binding and the remaining trie. If [detach p t] returns [b, t'], then [union_subtree m t' (p, mk_root b)] should be equivalent to [t]. *)
+(** [detach_singleton p t] detaches the binding at [p] from the main trie and returns both the binding and the remaining trie. If [detach p t] returns [b, t'], then {!val:union_subtree}[m t' (p,]{!val:root_opt}[b)] should be equivalent to [t]. *)
 val detach_singleton : path -> 'a t -> 'a option * 'a t
 
 (** {1 Iterators} *)
 
-(** [to_seq t] traverses through the trie [t] in the lexicographical order. *)
-val to_seq : 'a t -> (path * 'a) Seq.t
+(** [to_seq ~rev_prefix t] traverses through the trie [t] in the lexicographical order.
 
-(** [to_seq_values t] traverses through the trie [t] in the lexicographical order but only returns the associated values. This is faster than [Seq.map snd @@ to_seq t] because it does not need to reconstruct the paths. *)
+    @param rev_prefix The prefix prepended to any path in the output, but in reverse. The default is the empty unit path ([[]]).
+*)
+val to_seq : ?rev_prefix:path -> 'a t -> (path * 'a) Seq.t
+
+(** [to_seq_with_reversed_paths] is like {!val:to_seq} but with paths reversed. This is potentially more efficient than {!val:to_seq}.
+
+    @param rev_prefix The prefix prepended to any path in the output, but in reverse. The default is the empty unit path ([[]]).
+*)
+val to_seq_with_reversed_paths : ?rev_prefix:path -> 'a t -> (path * 'a) Seq.t
+
+(** [to_seq_values t] traverses through the trie [t] in the lexicographical order but only returns the associated values. This is potentially more efficient than {!val:to_seq} because path reversal is skipped. *)
 val to_seq_values : 'a t -> 'a Seq.t
 
-(** [of_seq m s] inserts bindings [(p, d)] into an empty trie, one by one, using {!val:union_subtree}. *)
-val of_seq : (rev_path:path -> 'a -> 'a -> 'a) -> (path * 'a) Seq.t -> 'a t
+(** [of_seq ~rev_prefix merger s] inserts bindings [(p, d)] into an empty trie, one by one, using {!val:union_subtree}.
 
-(** {1 Ugly Printer} *)
-
-(** [dump dump_v t] prints out the content of [t], using the ugly printer [dump_v] on values. *)
-val dump : (Format.formatter -> 'a -> unit) -> Format.formatter -> 'a t -> unit
+    @param rev_prefix The prefix prepended to any path sent to [merger], but in reverse. The default is the empty unit path ([[]]).
+*)
+val of_seq : ?rev_prefix:path -> (rev_path:path -> 'a -> 'a -> 'a) -> (path * 'a) Seq.t -> 'a t
 
 (**/**)
 

@@ -42,7 +42,7 @@ let select env pattern =
 let trie (type a) (elem : a Alcotest.testable) : a Trie.t Alcotest.testable =
   let module M = struct
     type t = a Trie.t
-    let pp = Trie.dump (Alcotest.pp elem)
+    let pp fmt t = Alcotest.(pp @@ list @@ pair (list string) elem) fmt (List.of_seq @@ Trie.to_seq t)
     let equal = Trie.equal (Alcotest.equal elem)
   end in
   (module M)

@@ -9,23 +9,24 @@
 
    {v
 open import M renaming (a to b) public
--- renaming a to b, and then re-exporting the content
+-- (Agda) renaming a to b, and then re-exporting the content
    v}
+
+   Another way to address this is to place the imported content under some namespace. For example, in Python,
 
    {v
-import foo as bar
-# putting content of foo under the prefix bar
+import math # Python: the sqrt function is available as  `math.sqrt`.
    v}
 
-   We can view a collection of hierarchical names as a tree, and these modifiers as tree transformers. This package provided a combinator calculus to express such tree transformers. It supports renaming, scopes, sequencing, unions, generic filtering.
+   The goal of the Yuujinchou library is to provide a calculus of these modifications. If we view the collection of hierarchical names as a trie, then these name modifiers are trie transformers, and they should be composable. Currently, it supports renaming, scopes, sequencing, unions, and custom hooks for more advanced patterns.
 
-   {1  Namespaces in Yuujinchou}
+   {2 Notes on Namespaces}
 
-   This package intends to treat a namespace as the prefix of a group of names. That is, there is technically no namespace [a], but only a group of unrelated names that happen to have the prefix [a].
+   This package intends to treat a namespace as the prefix of a group of names; there is no namespace [a], but a group of unrelated names that happen to have the prefix [a]. This is different from many other designs which attempt to group a collection of bindings as a module. It is possible that such a design is unnecessarily limited unless one wishes to implement parametric signature polymorphism (without row polymorphism).
 *)
 
 (**
-   {1 Modules}
+   {1 Modules in this Package}
 
    The code is split into three parts:
 *)
@@ -65,7 +66,7 @@ sig
   (** [any] keeps the content of the current tree. It is an error if the tree is empty (no name to match). *)
   val any : 'hook t
 
-  (** [root] keeps only the empty name (the empty list [[]]). It is equivalent to [only []]. *)
+  (** [root] keeps only the empty name (the empty list [[]]). It is equivalent to {!val:only}[[]]. *)
   val root : 'hook t
 
   (** [wildcard] keeps everything {e except} the empty name (the empty list [[]]). It is an error if there was no name is matched. *)
@@ -77,7 +78,7 @@ sig
   (** [only_subtree path] keeps the subtree rooted at [path]. It is an error if the subtree was empty. *)
   val only_subtree : path -> 'hook t
 
-  (** [in_subtree path pattern] runs the pattern [pat] on the subtree rooted at [path]. Bindings outside the subtree are kept intact. *)
+  (** [in_subtree path pattern] runs the pattern [pat] on the subtree rooted at [path]. Bindings outside the subtree are kept intact. For example, [in_subtree ["x"]]{!val:root} will keep [y] (if existing), while {!val:only_subtree}[["x"]] will drop [y]. *)
   val in_subtree : path -> 'hook t -> 'hook t
 
   (** {2 Negation} *)
@@ -88,7 +89,7 @@ sig
   (** [except x] drops the binding at [x]. It is an error if there was no [x] from the beginning. *)
   val except : path -> 'hook t
 
-  (** [except_subtree p] drops the subtree rooted at [p]. It is an error if there was nothing in the subtree. This is equivalent to [in_subtree p none]. *)
+  (** [except_subtree p] drops the subtree rooted at [p]. It is an error if there was nothing in the subtree. This is equivalent to {!val:in_subtree}[p none]. *)
   val except_subtree : path -> 'hook t
 
   (** {2 Renaming} *)
@@ -109,23 +110,31 @@ sig
   (** [union [pat0; pat1; pat2; ...; patn]] calculates the union of the results of individual patterns [pat0], [pat1], [pat2], ..., [patn]. *)
   val union : 'hook t list -> 'hook t
 
-  (** {2 Custom Filters} *)
+  (** {2 Custom Hooks} *)
 
-  (** [hook h] applies a labelled [h] to the entire trie; see {!val:Action.run_with_hooks}. *)
+  (** [hook h] applies the hook labelled [h] to the entire trie; see {!val:Action.run_with_hooks}. *)
   val hook : 'hook -> 'hook t
 
-  (** {1 Pretty Printers } *)
+  (** {1 Utility Functions } *)
 
-  (** Pretty printer for {!type:t}. *)
-  val pp : (Format.formatter -> 'hook -> unit) -> Format.formatter -> 'hook t -> unit
+  (** Pretty printer for {!type:path}. *)
+  val pp_path : Format.formatter -> Pattern.path -> unit
 end
 
 (** The {!module:Action} module implements the engine running the patterns. *)
 module Action :
 sig
-  (** The engine tries to preserve physical equality whenever feasible. For example, if the trie [t] has a binding at [x], the pattern [renaming ["x"] ["x"]] on [t] will return the same [t]. *)
+  (** The engine tries to preserve physical equality whenever feasible. For example, if the trie [t] has a binding at [x], the pattern {!val:Pattern.renaming}[["x"] ["x"]] on [t] will return the original [t]. *)
 
   (** {1 Matching} *)
+
+  (** The type of the result. The error [`BindingNotFound] is imprecise---[`BindingNotFound path]
+      can mean that the engine was expecting a binding right at [path] or under [path].
+      For example, both {!val:Pattern.only_subtree}[["x"]] and {!val:Pattern.only}[["x"]] could
+      return the same error [`BindingNotFound ["x"]], but it means "no bindings have the prefix [x]"
+      for {!val:Pattern.only_subtree} and "no binding at [x]" for {!val:Pattern.only_subtree}.
+  *)
+  type nonrec ('a, 'error) result = ('a Trie.t, [> `BindingNotFound of Pattern.path] as 'error) result
 
   (** [run ~rev_prefix ~union pattern trie] runs the [pattern] on the [trie] and return the transformed trie. It ignores patterns created by {!val:Pattern.hook}.
 
@@ -136,17 +145,17 @@ sig
   val run :
     ?rev_prefix:Pattern.path ->
     union:(rev_path:Pattern.path -> 'a -> 'a -> 'a) ->
-    unit Pattern.t -> 'a Trie.t -> ('a Trie.t, [> `BindingNotFound of Pattern.path]) result
+    unit Pattern.t -> 'a Trie.t -> ('a, 'error) result
 
-  (** [run_with_hooks ~rev_prefix ~hooks ~union pattern trie] runs the [pattern] on the [trie] and return the transformed trie. It is similar to {!val:run} but accepts a new argument [hook] to handle the patterns created by {!val:Pattern.hook}.
+  (** [run_with_hooks ~rev_prefix ~hooks ~union pattern trie] runs the [pattern] on the [trie] and return the transformed trie. It is similar to {!val:run} but accepts a new argument [hooks] to handle the patterns created by {!val:Pattern.hook}.
 
-      @param hooks The hooks that will be triggered by the pattern {!val:Pattern.hook}[f]. When the engine encounters {!Pattern.hook}[h], it will call [hooks h ~rev_path:p t] on the current trie.
+      @param hooks The hooks that will be triggered by patterns created by {!val:Pattern.hook}. When the engine encounters the pattern {!Pattern.hook}[h], it will call [hooks h ~rev_path:p t] on the current trie where [p] is the path (in reverse) and [t] is the subtrie at [p].
   *)
   val run_with_hooks :
     ?rev_prefix:Pattern.path ->
     union:(rev_path:Pattern.path -> 'a -> 'a -> 'a) ->
-    hooks:('hook -> rev_prefix:Pattern.path -> 'a Trie.t -> ('a Trie.t, [> `BindingNotFound of Pattern.path] as 'error) result) ->
-    'hook Pattern.t -> 'a Trie.t -> ('a Trie.t, 'error) result
+    hooks:('hook -> rev_prefix:Pattern.path -> 'a Trie.t -> ('a, 'error) result) ->
+    'hook Pattern.t -> 'a Trie.t -> ('a, 'error) result
 
   (** {1 Pretty Printers} *)
 
@@ -155,7 +164,7 @@ sig
 end
 
 (**
-   {1 Example}
+   {1 Example Code}
 
    {[
      open Yuujinchou
@@ -200,97 +209,98 @@ end
 (**
    {1 Examples from Other Languages}
 
+   This section shows how import mechanisms can be implemented using this package.
+
    {2 Haskell}
 
-   - Haskell syntax
+   - Haskell syntax:
    {v
 import Mod -- x is available an both x and Mod.x
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     union [any; renaming_subtree [] ["Mod"]]
+     Pattern.(union [any; renaming_subtree [] ["Mod"]])
    ]}
 
-   - Haskell syntax
+   - Haskell syntax:
    {v
 import Mod (x,y)
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     union [only ["x"]; only ["y"]]
+     Pattern.(union [only ["x"]; only ["y"]])
    ]}
 
-   - Haskell syntax
+   - Haskell syntax:
    {v
 import qualified Mod
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     renaming_subtree [] ["Mod"]
+     Pattern.renaming_subtree [] ["Mod"]
    ]}
 
-   - Haskell syntax
+   - Haskell syntax:
    {v
 import qualified Mod hiding (x,y)
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     seq [except ["x"]; except ["y"]; renaming_subtree [] ["Mod"]]
+     Pattern.(seq [except ["x"]; except ["y"]; renaming_subtree [] ["Mod"]])
    ]}
 
    {2 Racket}
 
-   - Racket syntax
+   - Racket syntax:
    {v
 (require (only-in ... id0 [old-id1 new-id1]))
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     seq [...; union [only ["id0"]; seq [only ["old-id1"]; renaming ["old-id1"] ["new-id1"]]]]
+     Pattern.(seq [...; union [only ["id0"]; seq [only ["old-id1"]; renaming ["old-id1"] ["new-id1"]]]])
    ]}
 
-   - Racket syntax
+   - Racket syntax:
    {v
 (require (except-in ... id0 id1]))
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     seq [...; except ["id0"]; except ["id1"]]
+     Pattern.(seq [...; except ["id0"]; except ["id1"]])
    ]}
 
-   - Racket syntax
+   - Racket syntax:
    {v
 (require (prefix-in p: ...))
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     seq [...; renaming_subtree [] ["p"]]
+     Pattern.(seq [...; renaming_subtree [] ["p"]])
    ]}
 
-   - Racket syntax
+   - Racket syntax:
    {v
 (require (rename-in ... [old-id0 new-id0] [old-id1 new-id1]))
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     seq [...; renaming ["old-id0"] ["new-id0"]; renaming ["old-id1"] ["new-id1"]]
+     Pattern.(seq [...; renaming ["old-id0"] ["new-id0"]; renaming ["old-id1"] ["new-id1"]])
    ]}
 
-   - Racket syntax
+   - Racket syntax:
    {v
 (require (combine-in require-spec0 require-spec1 ...))
    v}
-   Corresponding Yuujinchou pattern
+   Corresponding Yuujinchou pattern:
    {[
-     union [require-spec0; require-spec1; ...]
+     Pattern.(union [require-spec0; require-spec1; ...])
    ]}
 
    {1 What is "Yuujinchou"?}
 
    "Yuujinchou" is the transliteration of "友人帳" in Japanese, which literally means "book of friends". It is a powerful notebook in the manga Natsume Yuujinchou (夏目友人帳) that collects many {e real names (真名)} of youkais (妖怪) (supernatural and spiritual monsters). These real names can be used to summon and control youkais, but the protagonist decided to return the names to their original owners. The plot is about meeting all kinds of youkais.
 
-   This magical book will automatically turn to the page with the correct name when the protagonist pictures the youkai in his mind. This library is also about finding real names of youkais.
+   This magical book will automatically turn to the page with the correct name when the protagonist pictures the youkai in his mind. This package is also about finding real names of youkais.
 
-   The transliteration is in the Wāpuro style to use only English alphabet letters; otherwise, its Hepburn romanization would be "Yūjin-chō".
-
+   Notes on the transliteration: "Yuujinchou" is in the Wāpuro style so that it uses only the English alphabet; otherwise, its Hepburn romanization would be "Yūjin-chō".
 *)

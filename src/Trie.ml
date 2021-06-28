@@ -46,9 +46,9 @@ let[@inline] is_empty_ root children = Option.is_none root && SegMap.is_empty ch
 let mk_tree root children =
   if is_empty_ root children then empty else non_empty {root; children}
 
-let[@inline] mk_root_node v = {root = Some v; children = SegMap.empty}
+let[@inline] root_opt_node v = {root = Some v; children = SegMap.empty}
 
-let mk_root v = Option.map mk_root_node v
+let root_opt v = Option.map root_opt_node v
 
 let prefix_node path n : 'a node =
   let f seg n =
@@ -58,11 +58,11 @@ let prefix_node path n : 'a node =
 
 let[@inline] prefix path = Option.map @@ prefix_node path
 
-let[@inline] singleton_node (path, v) = prefix_node path @@ mk_root_node v
+let[@inline] singleton_node (path, v) = prefix_node path @@ root_opt_node v
 
 let[@inline] singleton (path, v) = non_empty @@ singleton_node (path, v)
 
-let[@inline] root v = non_empty @@ mk_root_node v
+let[@inline] root v = non_empty @@ root_opt_node v
 
 (** {1 Comparison} *)
 
@@ -145,7 +145,7 @@ let update_subtree path f t = update_cont t path f
 
 let update_singleton path f t = update_cont t path @@
   function
-  | None -> mk_root @@ f None
+  | None -> root_opt @@ f None
   | Some n -> replace_root n (f n.root)
 
 let update_root f t = update_singleton [] f t
@@ -184,7 +184,7 @@ let union_subtree ?(rev_prefix=[]) m t (path, t') =
 
 let union_singleton ?(rev_prefix=[]) m t (path, v) =
   update_cont t path @@ function
-  | None -> non_empty @@ mk_root_node v
+  | None -> non_empty @@ root_opt_node v
   | Some n -> replace_root n @@ union_option (m ~rev_path:(List.rev_append path rev_prefix)) n.root @@ Some v
 
 (** {1 Detaching subtrees} *)
@@ -214,30 +214,26 @@ let detach_singleton path t = apply_and_update_cont path t @@ function
 
 (** {1 Conversion from/to Seq} *)
 
-let rec node_to_seq ~rev_prefix n () =
+let rec node_to_seq_with_reversed_paths ~rev_prefix n () =
   match n.root with
-  | None -> children_to_seq ~rev_prefix n.children ()
+  | None -> children_to_seq_with_reversed_paths ~rev_prefix n.children ()
   | Some v ->
-    Seq.Cons ((List.rev rev_prefix, v), children_to_seq ~rev_prefix n.children)
+    Seq.Cons ((rev_prefix, v), children_to_seq_with_reversed_paths ~rev_prefix n.children)
 
-and children_to_seq ~rev_prefix children =
+and children_to_seq_with_reversed_paths ~rev_prefix children =
   SegMap.to_seq children |> Seq.flat_map @@ fun (seg, n) ->
-  node_to_seq ~rev_prefix:(seg :: rev_prefix) n
+  node_to_seq_with_reversed_paths ~rev_prefix:(seg :: rev_prefix) n
 
-let to_seq t = Option.fold ~none:Seq.empty ~some:(node_to_seq ~rev_prefix:[]) t
+let to_seq_with_reversed_paths ?(rev_prefix=[]) t =
+  Option.fold ~none:Seq.empty ~some:(node_to_seq_with_reversed_paths ~rev_prefix) t
 
-let rec node_to_seq_values n () =
-  match n.root with
-  | None -> children_to_seq_values n.children ()
-  | Some v ->
-    Seq.Cons (v, children_to_seq_values n.children)
+let to_seq_values t = Seq.map snd @@
+  to_seq_with_reversed_paths t
 
-and children_to_seq_values children =
-  SegMap.to_seq children |> Seq.flat_map @@ fun (_, n) -> node_to_seq_values n
+let to_seq ?rev_prefix t = Seq.map (fun (p, v) -> List.rev p, v) @@
+  to_seq_with_reversed_paths ?rev_prefix t
 
-let to_seq_values t = Option.fold ~none:Seq.empty ~some:node_to_seq_values t
-
-let of_seq m = Seq.fold_left (union_singleton m) empty
+let of_seq ?rev_prefix m = Seq.fold_left (union_singleton ?rev_prefix m) empty
 
 (** {1 Map} *)
 
@@ -287,24 +283,5 @@ let rec filter_mapi_endo_node ~rev_prefix f n =
   replace_root_and_children n root children
 let filter_mapi_endo ?(rev_prefix=[]) f t = replace_tree t @@
   Option.bind t @@ filter_mapi_endo_node ~rev_prefix f
-
-let rec dump_node dump_v fmt {root; children} =
-  Format.fprintf fmt "@[@[<hv2>{";
-  begin
-    match root with
-    | None -> ()
-    | Some root ->
-      Format.fprintf fmt " . =>@ %a" dump_v root
-  end;
-  Format.fprintf fmt "@]%a@ @[<hv2>}@]@]"
-    (dump_children dump_v) children
-
-and dump_children dump_v fmt =
-  let f ~key:seg ~data:n =
-    Format.fprintf fmt "@ @[<hv2>; %a =>@ %a@]" Format.pp_print_string seg (dump_node dump_v) n
-  in
-  SegMap.iter ~f
-
-let dump dump_v = Format.pp_print_option (dump_node dump_v)
 
 let physically_equal : 'a t -> 'a t -> bool = phy_eq_option
